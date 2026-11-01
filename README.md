@@ -37,32 +37,48 @@ The first run downloads the cutout model (~180 MB), the face landmark model (4 M
 ```
 /Users/gokulnathbaskaran/Documents/Youtube/
   stills/   S1_wide.png  S2_me.png  S3_sidekick.png  S4_me_react.png  S5_sidekick_sincere.png  S6_behind.png
-  audio/    01_me.mp3  02_sidekick.mp3  03_me.mp3 ...
-  script.md
+  audio/
+    main_character_audio/   ElevenLabs_2026-11-01T21_39_57_....mp3  ...   (speaker "me")
+    buddy_audio/            ElevenLabs_2026-11-01T21_34_26_....mp3  ...   (speaker "sidekick")
+  script.md                 (written for you on the first run if it's missing)
 ```
 
-- Stills only need to **start with** `S1`…`S6` (png/jpg/webp). Any aspect ratio works; they're cover-cropped to 9:16.
-- The audio filename sets the order and the speaker (`07_sidekick.mp3` = line 7, spoken by sidekick).
+- **Stills** only need to start with `S1`…`S6` (png/jpg/webp). Any aspect ratio works; they're cover-cropped to 9:16.
+- **Audio filenames can be anything.** Each speaker gets a folder, and the folder name sets the speaker:
+  - `main_character_audio`, `main`, `hero` → **me**
+  - `buddy_audio`, `buddy`, `friend` → **sidekick**
+  - Any other folder name is used as the speaker name, minus the `_audio` ending. Add your own in `speakerAliases` in `config.json`.
+- Flat files named `01_me.mp3`, `02_sidekick.mp3` also work.
+
+### First run without script.md
+
+`prepare.py` transcribes every clip with Whisper and writes a draft `script.md`. Each row has the speaker, what was said, and the exact audio file. The rows come out in **generation order** (from the ElevenLabs timestamps), not conversation order. Then:
+
+1. Put the rows in the order they're spoken and renumber `#`.
+2. Delete rows for takes you don't want, such as a `(1)` duplicate download.
+3. Pick a `Shot` for each line, and optionally an `Expression`, `Emphasis` and `React`.
+4. Run `prepare.py` again.
 
 ### script.md
 
-Use a table (columns are found by name, so their order doesn't matter):
-
 ```markdown
-| #  | Speaker  | Shot | Expression | Emphasis | React | Line |
-|----|----------|------|------------|----------|-------|------|
-| 01 | me       | S1   | smug       |          |       | Guess who's giving away a camera? |
-| 02 | sidekick | S3   |            |          |       | Wait, seriously? |
-| 05 | sidekick | S5   | soft       | yes      | happy | You all made this channel. |
+| #  | Speaker  | Shot | Expression | Emphasis | React | Line | File |
+|----|----------|------|------------|----------|-------|------|------|
+| 01 | me       | S1   | smug       |          |       | Guess who's giving away a camera? | main_character_audio/ElevenLabs_..._21_39_57_....mp3 |
+| 02 | sidekick | S3   |            |          |       | Wait, seriously? | buddy_audio/ElevenLabs_..._21_34_26_....mp3 |
+| 05 | sidekick | S5   | soft       | yes      | happy | You all made this channel. | ... |
 ```
 
-…or one line per row:
+**How each line finds its audio file:**
+1. The `File` column, if every row has one. A bare file name is enough.
+2. Otherwise `"audioMap"` in `config.json`, e.g. `{"1": "main_character_audio/xyz.mp3"}`.
+3. Otherwise Whisper listens to each clip and matches it to the closest `Line` of the same speaker.
+4. Without Whisper, the k-th file in a speaker's folder (in name order) becomes that speaker's k-th line.
 
-```
-01 [S1] me (smug): Guess who's giving away a camera?
-05 [S5] sidekick (soft) !emphasis: You all made this channel.
-```
+`prepare.py` prints the final mapping every time, and lists any audio file it didn't use.
 
+**Columns:**
+- **Line** is used for caption spelling. Leave it as `(type the line here)` to caption with Whisper's words.
 - **Expression:** `neutral`, `smug`, `soft`, `happy` (also accepted: `squint`→happy, `sincere`→soft). It applies to the speaker.
 - **React:** the listener's expression while this line plays.
 - **Emphasis:** the emotional line. It gets a longer pause before it and a strong, slow push-in.

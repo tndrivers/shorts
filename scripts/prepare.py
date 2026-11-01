@@ -53,6 +53,9 @@ DEFAULTS = {
         "S6": ["me", "sidekick"],
     },
     "defaultShot": {"me": "S2", "sidekick": "S3"},
+    # audio folder name -> speaker name used in script.md / shotFaces ("_audio" is stripped first)
+    "speakerAliases": {"main_character": "me", "main": "me", "maincharacter": "me", "hero": "me",
+                       "buddy": "sidekick", "friend": "sidekick", "side": "sidekick"},
     "camera": {"pushIn": 0.06, "emphasisPushIn": 0.16, "breath": 0.007, "breathSeconds": 3.8},
     "mouth": {"maxOpen": 0.26, "color": "#2b0d10", "speakerOnly": True},
     "captions": {
@@ -91,6 +94,201 @@ def norm_word(w):
     return re.sub(r"[^a-z0-9']", "", w.lower())
 
 
+def natural_key(p: Path):
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", str(p))]
+
+
+def speaker_name(folder: str, aliases: dict) -> str:
+    n = folder.strip().lower()
+    n = re.sub(r"[\s_\-]*(audio|voice|vo|lines|clips)$", "", n)
+    n = re.sub(r"[\s\-]+", "_", n)
+    return aliases.get(n, n)
+
+
+def discover_audio(audio_dir: Path, aliases: dict):
+    """Find voice lines in audio/ and any subfolders. Returns [(index|None, speaker|None, path)].
+
+    Filenames can be anything. The speaker comes from the folder (audio/me/..., audio/sidekick/...);
+    a line number is only taken from a number at the very START of the name (01_x.mp3, "3 - hey.wav")
+    or from a numbered folder, so dates/timestamps in exported names are ignored.
+    """
+    if not audio_dir.exists():
+        sys.exit(f"audio folder not found: {audio_dir}")
+    found = []
+    for p in sorted(audio_dir.rglob("*"), key=natural_key):
+        if not p.is_file() or p.name.startswith(".") or p.suffix.lower() not in AUDIO_EXT:
+            continue
+        folders = list(p.relative_to(audio_dir).parts[:-1])
+        num = re.match(r"^\s*(\d{1,3})(?!\d)", p.stem)
+        index = int(num.group(1)) if num else None
+        if index is None:
+            index = next((int(f) for f in reversed(folders) if re.fullmatch(r"\d{1,3}", f)), None)
+        speaker = next((speaker_name(f, aliases) for f in reversed(folders) if not re.fullmatch(r"[\d\s_\-]+", f)), None)
+        if speaker is None and num:  # 01_me.mp3 style
+            m = re.match(r"^\s*\d{1,3}[\s_\-.]*([A-Za-z][\w\-]*)", p.stem)
+            speaker = m.group(1).lower() if m else None
+        found.append((index, speaker, p))
+    if not found:
+        listing = "\n".join(f"  {q.relative_to(audio_dir)}" for q in sorted(audio_dir.rglob("*"))[:40]) or "  (empty)"
+        sys.exit(f"no audio files ({', '.join(sorted(AUDIO_EXT))}) found in {audio_dir}\nwhat's there:\n{listing}")
+    return found
+
+
+def _words(t: str):
+    return [w for w in (norm_word(x) for x in t.split()) if w]
+
+
+def resolve_order(files, script, audio_dir, cfg, use_whisper=True):
+    """Decide which audio file is which script line. Returns [(index, speaker, path)] in video order.
+
+    1. config.json "audioMap"  {"1": "me/take 3.mp3", ...}  -> exactly that
+    2. every file starts with a unique number (01_...)     -> that order
+    3. script.md has the text and Whisper is installed     -> match by what is said (speaker folder respected)
+    4. script.md names speakers                            -> k-th file in a speaker's folder = their k-th line
+    5. otherwise                                           -> alphabetical order
+    """
+    by_path = {str(p.relative_to(audio_dir)): (i, sp, p) for i, sp, p in files}
+    how = ""
+    if script and all(l.file for l in script):
+        out = []
+        for l in script:
+            hit = by_path.get(l.file) or next((v for k, v in by_path.items() if Path(k).name == Path(l.file).name), None)
+            if not hit:
+                sys.exit(f'script.md line {l.index}: audio file "{l.file}" not found in {audio_dir}')
+            out.append((l.index, l.speaker or hit[1] or "me", hit[2]))
+        how = "File column in script.md"
+    elif cfg.get("audioMap"):
+        out = []
+        for k, rel in sorted(cfg["audioMap"].items(), key=lambda kv: int(kv[0])):
+            if rel not in by_path:
+                sys.exit(f'audioMap: "{rel}" not found in {audio_dir}')
+            _, sp, p = by_path[rel]
+            line = next((l for l in script if l.index == int(k)), None)
+            out.append((int(k), (line.speaker if line and line.speaker else sp) or "me", p))
+        how = "config.json audioMap"
+    elif all(i is not None for i, _, _ in files) and len({i for i, _, _ in files}) == len(files):
+        out = sorted(((i, sp or "me", p) for i, sp, p in files), key=lambda f: f[0])
+        how = "numbers at the start of the filenames"
+    else:
+        out = None
+        if script and all(l.text for l in script) and use_whisper:
+            out = _match_by_content(files, script, cfg)
+            how = "matching what's said to script.md (Whisper)"
+        if out is None and script and all(l.speaker for l in script):
+            by_sp = {}
+            for _, sp, p in files:
+                by_sp.setdefault(sp, []).append(p)
+            if None in by_sp or not set(l.speaker for l in script) <= set(by_sp):
+                sys.exit("Can't tell which file is which line: put each speaker's files in a folder named like the "
+                         f"speaker in script.md ({sorted(set(l.speaker for l in script))}), install Whisper, "
+                         "or list them in config.json \"audioMap\".")
+            out, used = [], {sp: 0 for sp in by_sp}
+            for l in script:
+                if used[l.speaker] >= len(by_sp[l.speaker]):
+                    sys.exit(f"script.md has more '{l.speaker}' lines than files in audio/{l.speaker}/")
+                out.append((l.index, l.speaker, by_sp[l.speaker][used[l.speaker]]))
+                used[l.speaker] += 1
+            how = "speaker folders, files in name order (no Whisper to match by content)"
+        if out is None:
+            out = [(n + 1, sp or "me", p) for n, (_, sp, p) in enumerate(files)]
+            how = "alphabetical order (no script.md speakers / Whisper)"
+    used_paths = {p for _, _, p in out}
+    print(f"audio -> lines ({how}):")
+    for i, sp, p in out:
+        print(f"   {i:02d}  {sp:<10} {p.relative_to(audio_dir)}")
+    for _, _, p in files:
+        if p not in used_paths:
+            print(f"  ! not used: {p.relative_to(audio_dir)}")
+    print("   (wrong? pin it in config.json, e.g. \"audioMap\": {\"1\": \"me/file.mp3\", ...})")
+    return out
+
+
+def _match_by_content(files, script, cfg):
+    from shortkit.audio import decode
+    from shortkit import transcribe as tr
+
+    heard = []
+    for _, sp, p in files:
+        audio = decode(p, True, cfg["audio"]["silenceThresholdDb"], cfg["audio"]["keepSilence"])
+        ws = tr._whisper_words(audio, cfg["whisper"]["model"], cfg["whisper"]["language"], "")
+        if ws is None:
+            return None  # no Whisper installed
+        heard.append(" ".join(w["text"] for w in ws))
+    import difflib
+
+    scores = []
+    for fi, (_, sp, p) in enumerate(files):
+        hw = _words(heard[fi])
+        for li, l in enumerate(script):
+            if sp and l.speaker and sp != l.speaker.lower():
+                continue  # different speaker folder
+            sc = difflib.SequenceMatcher(a=hw, b=_words(l.text), autojunk=False).ratio()
+            scores.append((sc, fi, li))
+    scores.sort(reverse=True)
+    f_used, l_used, pairs = set(), set(), {}
+    for sc, fi, li in scores:
+        if fi in f_used or li in l_used:
+            continue
+        f_used.add(fi)
+        l_used.add(li)
+        pairs[li] = (fi, sc)
+    out = []
+    for li, l in enumerate(script):
+        if li not in pairs:
+            print(f"  ! no audio file matched line {l.index}: {l.text[:50]}")
+            continue
+        fi, sc = pairs[li]
+        _, sp, p = files[fi]
+        flag = "" if sc >= 0.5 else f"   <-- weak match ({sc:.0%}), heard: \"{heard[fi][:50]}\""
+        if flag:
+            print(f"  ! line {l.index:02d} -> {p.name}{flag}")
+        out.append((l.index, l.speaker or sp or "me", p))
+    return out
+
+
+def stills_hint(src: Path):
+    d = src / "stills"
+    return sorted({m.group(1).upper() for p in (d.iterdir() if d.exists() else []) if (m := re.match(r"^(S\d+)", p.stem, re.I))})
+
+
+def write_draft_script(src, files, audio_dir, cfg, stills, use_whisper=True):
+    """No script.md yet: transcribe every clip and write a draft to reorder and fill in."""
+    from shortkit.audio import decode
+    from shortkit import transcribe as tr
+
+    print("no script.md found - transcribing every clip to write a draft ...")
+    rows = []
+    for _, sp, p in files:
+        text = ""
+        if use_whisper:
+            audio = decode(p, True, cfg["audio"]["silenceThresholdDb"], cfg["audio"]["keepSilence"])
+            ws = tr._whisper_words(audio, cfg["whisper"]["model"], cfg["whisper"]["language"], "")
+            text = " ".join(w["text"] for w in ws) if ws else ""
+        stamp = re.search(r"\d{4}-\d{2}-\d{2}T\d{2}_\d{2}_\d{2}", p.name)
+        rows.append((stamp.group() if stamp else f"{p.stat().st_mtime:.0f}", sp or "me", p, text))
+        print(f"   {sp or '?':<10} {p.name[:60]}  {text[:60]}")
+    rows.sort(key=lambda r: r[0])
+    shot_for = cfg["defaultShot"]
+    lines = [
+        "# Script",
+        "",
+        "Put the rows in the order they're spoken, renumber #, pick a Shot for each line,",
+        "optionally an Expression (neutral / smug / soft / happy), and `yes` under Emphasis for the emotional line.",
+        "Delete rows for takes you don't want. Then run prepare.py again.",
+        f"Shots available: {', '.join(stills) or 'S1..S6'}",
+        "",
+        "| # | Speaker | Shot | Expression | Emphasis | React | Line | File |",
+        "|---|---------|------|------------|----------|-------|------|------|",
+    ]
+    for n, (_, sp, p, text) in enumerate(rows, 1):
+        lines.append(f"| {n:02d} | {sp} | {shot_for.get(sp, 'S1')} | | | | {text or '(type the line here)'} | {p.relative_to(audio_dir)} |")
+    out = src / "script.md"
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"\nwrote a draft: {out}")
+    print("Rows are in the order the clips were generated, NOT the conversation order.")
+    print("Reorder them, set the shots, then run:  python3 scripts/prepare.py")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--src", help="folder with stills/, audio/, script.md")
@@ -109,20 +307,17 @@ def main():
 
     # ------------------------------------------------------------------ inputs
     audio_dir = src / "audio"
-    files = []
-    for p in sorted(audio_dir.iterdir()) if audio_dir.exists() else []:
-        m = re.match(r"^(\d+)[\s_\-.]*([A-Za-z][\w\-]*)?", p.stem)
-        if p.suffix.lower() in AUDIO_EXT and m:
-            files.append((int(m.group(1)), (m.group(2) or "me").lower(), p))
-    if not files:
-        sys.exit(f"no audio files like 01_me.mp3 in {audio_dir}")
-    files.sort()
-    speakers = sorted({s for _, s, _ in files})
+    files = discover_audio(audio_dir, cfg["speakerAliases"])
+    speakers = sorted({s for _, s, _ in files if s}) or ["me", "sidekick"]
 
     script_path = next((p for p in [src / "script.md", src / "Script.md", src / "SCRIPT.md"] if p.exists()), None)
     script = parse_script(script_path.read_text(encoding="utf-8"), speakers) if script_path else []
+    if not script:
+        write_draft_script(src, files, audio_dir, cfg, stills_hint(src), use_whisper=not args.skip_whisper)
+        return
+    files = resolve_order(files, script, audio_dir, cfg, use_whisper=not args.skip_whisper)
     by_index = {l.index: l for l in script}
-    if script and not all(i in by_index for i, _, _ in files):
+    if script and not all(i in by_index for i, _, _ in files) and len(script) == len(files):
         # numbering in script.md doesn't match filenames: fall back to order
         by_index = {files[n][0]: l for n, l in enumerate(script) if n < len(files)}
     print(f"{len(files)} audio lines, {len(script)} script lines, speakers: {speakers}")
@@ -144,7 +339,7 @@ def main():
             print(f"  ! line {idx:02d} wants {shot} but there is no such still; using {next(iter(stills))}")
             shot = next(iter(stills))
         lines.append({
-            "index": idx, "speaker": speaker, "file": path.name, "shot": shot,
+            "index": idx, "speaker": speaker, "file": str(path.relative_to(audio_dir)), "shot": shot,
             "text": sl.text if sl else "", "expression": sl.expression if sl else "neutral",
             "react": sl.react if sl else None, "emphasis": bool(sl and sl.emphasis),
         })

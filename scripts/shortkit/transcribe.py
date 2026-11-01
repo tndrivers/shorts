@@ -67,6 +67,8 @@ def _norm(w: str) -> str:
 
 
 def _even_split(words: list[str], dur: float, envelope_voiced=None):
+    if not words:
+        return []
     """Fallback without Whisper: spread words by character length across the line."""
     weights = np.array([max(2, len(w)) + 1.5 for w in words], dtype=float)
     edges = np.concatenate([[0], np.cumsum(weights)]) / weights.sum() * dur

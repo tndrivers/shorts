@@ -33,6 +33,7 @@ class ScriptLine:
     expression: str = "neutral"
     emphasis: bool = False
     react: str | None = None  # expression for the listener, if any
+    file: str | None = None  # audio file for this line (path inside audio/, or just the file name)
     extra: dict = field(default_factory=dict)
 
 
@@ -59,6 +60,8 @@ def _header_key(name: str) -> str | None:
     n = name.strip().lower()
     if n in ("#", "no", "no.", "n", "id", "idx", "index", "line #", "line no", "num", "number"):
         return "index"
+    if "file" in n or n in ("audio", "clip", "mp3"):
+        return "file"
     if any(k in n for k in ("speaker", "who", "character", "voice")):
         return "speaker"
     if "react" in n or "listener" in n:
@@ -76,6 +79,8 @@ def _header_key(name: str) -> str | None:
 
 def _clean_text(t: str) -> str:
     t = t.strip().strip("*_").strip()
+    if t.lower().startswith("(type the line"):
+        return ""  # untouched draft placeholder: captions will use Whisper's words
     if len(t) >= 2 and t[0] in "\"“'‘" and t[-1] in "\"”'’":
         t = t[1:-1]
     return t.strip()
@@ -114,6 +119,7 @@ def parse_script(md: str, speakers: list[str]) -> list[ScriptLine]:
                         expression=_norm_expr(rec.get("expression")) or "neutral",
                         emphasis=(rec.get("emphasis", "").strip().lower() in TRUTHY),
                         react=_norm_expr(rec.get("react")),
+                        file=(rec.get("file") or "").strip().strip("`") or None,
                     )
                 )
             continue
