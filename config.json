@@ -4,7 +4,7 @@
     "S1": "chatacter_buddy_frontpose.png",
     "S2": "main_character_close_up.png",
     "S3": "buddly_close_up_1.png",
-    "S4": "main_character.png",
+    "S4": "chatacter_buddy_frontpose.png",
     "S5": "buddly_close_up_2.png",
     "S6": "chatacter_buddy_backpose.png"
   },
@@ -29,7 +29,8 @@
       "sidekick"
     ],
     "S4": [
-      "me"
+      "me",
+      "sidekick"
     ],
     "S5": [
       "sidekick"

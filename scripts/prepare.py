@@ -446,6 +446,15 @@ def main():
     print("3/4 cutouts, background fill, face rig ...")
     from shortkit.rig import build_shot
 
+    # a face placed by hand on one shot also applies to other shots built from the same image
+    for sid in list(stills):
+        if cfg["rig"].get(sid):
+            continue
+        twin = next((o for o in stills if o != sid and stills[o].resolve() == stills[sid].resolve() and cfg["rig"].get(o)), None)
+        if twin:
+            cfg["rig"][sid] = cfg["rig"][twin]
+            print(f"  {sid}: same image as {twin}, reusing its hand-placed face(s)")
+
     cache_file = out / "rig_cache.json"
     cache = json.loads(cache_file.read_text()) if cache_file.exists() else {}
     shots = {}

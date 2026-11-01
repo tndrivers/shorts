@@ -104,6 +104,7 @@ function prompt() {
   $("skip").style.display = on && step >= 3 ? "" : "none";
   $("undo").style.display = on && step > 0 ? "" : "none";
   $("prompt").innerHTML = on ? `<span class="muted">${$("who").value} · step ${step + 1}/9</span><br>` + STEPS[step][1]
+    : shot.sharedWith && !(rig[shot.id] || []).length ? `${shot.id} uses the same image as <b>${shot.sharedWith}</b>, so it reuses the faces placed there.`
     : (shot.missing.length ? `No face found for <b>${shot.missing.join(", ")}</b> in ${shot.id}. Press <b>Place face</b>.`
                             : `${shot.id}: every expected character has a face. Add one anyway if a mouth is wrong.`);
 }
@@ -218,6 +219,12 @@ class Handler(BaseHTTPRequestHandler):
                 shots.append({"id": sid, "full": s["full"], "autoFaces": s["faces"],
                               "missing": [c for c in expected if c not in have]})
             rig = json.loads(RIG.read_text()) if RIG.exists() else cfg.get("rig", {})
+            stills_map = cfg.get("stillsMap", {})
+            for sh in shots:  # shots sharing an image share hand-placed faces (prepare.py does the same)
+                same = [o for o, f in stills_map.items() if o != sh["id"] and f == stills_map.get(sh["id"]) and rig.get(o)]
+                if same and not rig.get(sh["id"]):
+                    sh["missing"] = [c for c in sh["missing"] if c not in {f["character"] for f in rig[same[0]]}]
+                    sh["sharedWith"] = same[0]
             return self._send(200, json.dumps({"shots": shots, "characters": chars, "rig": rig}).encode(), "application/json")
         if path.startswith("/gen/"):
             f = (GEN / path[5:]).resolve()
