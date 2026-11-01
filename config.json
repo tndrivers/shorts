@@ -1,17 +1,45 @@
 {
   "source": "/Users/gokulnathbaskaran/Documents/Youtube",
-  "whisper": { "model": "small.en", "language": "en" },
-  "stills": { "scale": 1.5, "cutoutModel": "isnet-general-use", "fillGrow": 0.018 },
-  "shotFaces": {
-    "S1": ["me", "sidekick"],
-    "S2": ["me"],
-    "S3": ["sidekick"],
-    "S4": ["me"],
-    "S5": ["sidekick"],
-    "S6": ["me", "sidekick"]
+  "whisper": {
+    "model": "small.en",
+    "language": "en"
   },
-  "mouth": { "maxOpen": 0.26 },
-  "camera": { "pushIn": 0.06, "emphasisPushIn": 0.16, "breath": 0.007, "breathSeconds": 3.8 },
+  "stills": {
+    "scale": 1.5,
+    "cutoutModel": "isnet-general-use",
+    "fillGrow": 0.018
+  },
+  "shotFaces": {
+    "S1": [
+      "me",
+      "sidekick"
+    ],
+    "S2": [
+      "me"
+    ],
+    "S3": [
+      "sidekick"
+    ],
+    "S4": [
+      "me"
+    ],
+    "S5": [
+      "sidekick"
+    ],
+    "S6": [
+      "me",
+      "sidekick"
+    ]
+  },
+  "mouth": {
+    "maxOpen": 0.26
+  },
+  "camera": {
+    "pushIn": 0.06,
+    "emphasisPushIn": 0.16,
+    "breath": 0.007,
+    "breathSeconds": 3.8
+  },
   "captions": {
     "font": "Montserrat",
     "weight": 800,
@@ -20,28 +48,23 @@
     "highlight": "#ffe14d",
     "positions": {}
   },
-  "fx": {
-    "S1": [
-      { "type": "stars", "region": [0, 0, 1, 0.42], "count": 70 },
-      { "type": "fairyLights", "from": [0.02, 0.06], "to": [0.98, 0.1], "sag": 0.06, "count": 18 }
-    ],
-    "S2": [{ "type": "fire", "x": 0.82, "y": 0.97, "width": 0.3, "height": 0.22, "light": 0.14 }],
-    "S3": [{ "type": "stars", "region": [0, 0, 1, 0.3], "count": 50 }],
-    "S6": [
-      { "type": "stars", "region": [0, 0, 1, 0.55], "count": 90 },
-      { "type": "grass", "region": [0, 0.9, 1, 0.1], "color": "#3f6b2a", "count": 160, "layer": "front" }
-    ]
-  },
+  "fx": {},
   "cards": [
     {
-      "fromLine": 3,
+      "fromLine": 4,
       "toLine": 4,
-      "title": "How to enter",
+      "title": "Get the prompts",
       "position": "auto",
+      "hold": 1.2,
       "steps": [
-        { "text": "Subscribe", "word": "subscribe" },
-        { "text": "Comment your dream shot", "word": "comment" },
-        { "text": "Share this Short", "word": "share" }
+        {
+          "text": "Comment \"3D\"",
+          "word": "comment"
+        },
+        {
+          "text": "Check your DMs for the prompts",
+          "word": "prompts"
+        }
       ]
     }
   ],
