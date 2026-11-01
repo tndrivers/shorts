@@ -356,6 +356,9 @@ def main():
 
     user_cfg = json.loads(Path(args.config).read_text()) if Path(args.config).exists() else {}
     cfg = deep_merge(DEFAULTS, user_cfg)
+    rig_file = ROOT / "rig.json"  # written by scripts/rig_editor.py
+    if rig_file.exists():
+        cfg["rig"] = {**cfg["rig"], **json.loads(rig_file.read_text())}
     src = Path(args.src or cfg["source"] or ROOT / "input").expanduser().resolve()
     out = ROOT / "public" / "generated"
     out.mkdir(parents=True, exist_ok=True)
@@ -450,7 +453,7 @@ def main():
         path = stills[sid]
         key_src = json.dumps([path.stat().st_mtime, path.stat().st_size, cfg["stills"], cfg["shotFaces"].get(sid),
                               cfg["rig"].get(sid), cfg["captions"]["positions"].get(sid), cfg["captions"]["preferY"],
-                              cfg["width"], cfg["height"], 5])
+                              cfg["width"], cfg["height"], 6])
         key = hashlib.sha1(key_src.encode()).hexdigest()
         if not args.force and sid in cache and cache[sid]["key"] == key and (out / f"{sid}_plate.jpg").exists():
             shots[sid] = cache[sid]["shot"]

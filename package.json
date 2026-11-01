@@ -9,7 +9,8 @@
     "render": "remotion render Short out/short.mp4",
     "check": "remotion render ShortClean out/clean.mp4 --scale=0.5 && python3 scripts/check_render.py out/clean.mp4",
     "typecheck": "tsc --noEmit",
-    "rig": "remotion render RigCheck out/rigcheck.mp4"
+    "rig": "remotion render RigCheck out/rigcheck.mp4",
+    "rig-editor": "python3 scripts/rig_editor.py"
   },
   "dependencies": {
     "@fontsource/montserrat": "5.2.8",

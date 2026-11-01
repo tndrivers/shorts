@@ -169,22 +169,21 @@ All coordinates are fractions of the frame (0–1). Effects sit behind the chara
 - Each step appears when its `word` is spoken. Without a `word`, steps appear one after another.
 - `position: "auto"` puts the card on whichever side has no faces, and the captions move out of its way.
 
-### Manual face rig (`rig`)
+### Faces the detector misses: rig editor
 
-MediaPipe finds most human and Pixar-style faces. For an animal sidekick or a face it misses, place the face by hand. Coordinates are 0–1 of the 9:16 frame, so read them off `debug/S*_rig.jpg`:
+MediaPipe finds most human and Pixar-style faces, but often misses stylised, cartoon or animal characters. `prepare.py` warns about these: `! S3: no face for ['sidekick'] - their mouth won't move here`.
 
-```json
-"rig": {
-  "S3": [{
-    "character": "sidekick",
-    "mouth": { "x": 0.52, "y": 0.41, "w": 0.06 },
-    "chinY": 0.45,
-    "eyes": [{ "x": 0.46, "y": 0.33, "w": 0.04, "h": 0.02 }, { "x": 0.57, "y": 0.33, "w": 0.04, "h": 0.02 }]
-  }]
-}
+```bash
+python3 scripts/rig_editor.py
 ```
 
-A manual rig replaces detection for that shot, so list every face you want animated.
+This opens http://localhost:8765. For each warned shot:
+1. Pick the shot and the character, then press **Place face**.
+2. Click the two mouth corners and the bottom of the chin.
+3. Click each eye's left corner, right corner and the top of its upper lid. **Skip eyes** if you don't want blinks.
+4. Press **Save rig.json**, then run `python3 scripts/prepare.py` again.
+
+Hand-placed faces are added to the automatic ones, so in a wide shot you only place the face that was missed. To fix a wrongly detected face, place that character by hand and it takes over. `rig.json` sits next to `config.json`; delete it to go back to fully automatic.
 
 ## How it's built
 

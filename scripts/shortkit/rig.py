@@ -240,12 +240,17 @@ def _finish_face(rgb, alpha, jaw_poly, lower, upper, mouth_c, mouth_w, corners, 
     sig = max(1.5, 0.07 * mouth_w)
     soft = np.clip(cv2.GaussianBlur(jaw, (0, 0), sig) * 2.0, 0, 1)
     lip_line = np.vstack([[[-10, lower[0][1]]], lower, [[w + 10, lower[-1][1]]], [[w + 10, h + 10]], [[-10, h + 10]]])
-    below_lip = cv2.GaussianBlur(poly_mask(alpha.shape, lip_line).astype(np.float32) / 255, (0, 0), 0.8)
+    lip_mask = poly_mask(alpha.shape, lip_line).astype(np.float32) / 255
+    crisp = cv2.GaussianBlur(lip_mask, (0, 0), 0.8)
+    feather = cv2.GaussianBlur(lip_mask, (0, 0), max(2.0, 0.14 * mouth_w))
     # taper sideways from the mouth: the chin moves fully, the cheeks barely, so no seam shows
     xs_ = np.arange(w, dtype=np.float32)[None, :]
     dx = np.abs(xs_ - mouth_c[0]) / max(mouth_w, 1)
-    side = np.clip((1.15 - dx) / 0.6, 0, 1)
+    side = np.clip((1.05 - dx) / 0.6, 0, 1)
     side = side * side * (3 - 2 * side)
+    # sharp lip line between the mouth corners, soft blend out toward the cheeks (no seam)
+    wc = np.clip((0.75 - dx) / 0.3, 0, 1)
+    below_lip = crisp * wc + feather * (1 - wc)
     jaw_a = soft * below_lip * side * np.clip(alpha * 1.2, 0, 1)
     ys, xs = np.nonzero(jaw_a > 0.01)
     jaw_piece = None
@@ -326,15 +331,26 @@ def build_shot(shot_id, path: Path, cfg, out_dir: Path, cache: Path, characters_
 
     # faces: manual rig wins, else MediaPipe
     manual = cfg.get("rig", {}).get(shot_id)
-    faces_raw = []
-    if manual:
-        faces_raw = [(m.get("character"), rig_from_manual(m, rgb, alpha, w, h)) for m in manual]
-    else:
-        lms = detect_faces(rgb, cache, max(1, len(characters_for_faces)))
-        names = list(characters_for_faces)
-        faces_raw = [(names[i] if i < len(names) else None, rig_from_landmarks(p, rgb, alpha)) for i, p in enumerate(lms)]
+    # hand-placed faces (rig editor / config "rig") + automatic detection for everyone else
+    manual = manual or []
+    faces_raw = [(m.get("character"), rig_from_manual(m, rgb, alpha, w, h)) for m in manual]
+    taken = {c for c, _ in faces_raw}
+    names = [n for n in characters_for_faces if n not in taken]
+    auto = []
+    if names or not manual:
+        lms = detect_faces(rgb, cache, max(1, len(names)))
+        # drop detections that sit on a hand-placed face
+        def on_manual(pts):
+            c = pts.mean(axis=0)
+            return any(f["box"][0] <= c[0] <= f["box"][2] and f["box"][1] <= c[1] <= f["box"][3] for _, f in faces_raw)
+        lms = [p for p in lms if not on_manual(p)]
+        auto = [(names[i] if i < len(names) else None, rig_from_landmarks(p, rgb, alpha)) for i, p in enumerate(lms)]
+    faces_raw = sorted(faces_raw + auto, key=lambda cf: cf[1]["mouth"]["center"][0])
     print(f"  {shot_id}: {len(pieces)} character piece(s), {len(faces_raw)} face(s) "
-          f"{[c for c, _ in faces_raw]}{' (manual rig)' if manual else ''}")
+          f"{[c for c, _ in faces_raw]}{f' ({len(manual)} hand-placed)' if manual else ''}")
+    missing = [n for n in characters_for_faces if n not in {c for c, _ in faces_raw}]
+    if missing:
+        print(f"  ! {shot_id}: no face for {missing} - their mouth won't move here. Place it: python3 scripts/rig_editor.py")
 
     faces = []
     dbg = rgb.copy()
