@@ -43,6 +43,7 @@ DEFAULTS = {
         "tail": 0.9,
     },
     "whisper": {"model": "small.en", "language": "en"},
+    "stillsMap": {},
     "stills": {"scale": 1.5, "cutoutModel": "isnet-general-use", "fillGrow": 0.018},
     "shotFaces": {
         "S1": ["me", "sidekick"],
@@ -149,7 +150,10 @@ def resolve_order(files, script, audio_dir, cfg, use_whisper=True):
     """
     by_path = {str(p.relative_to(audio_dir)): (i, sp, p) for i, sp, p in files}
     how = ""
-    if script and all(l.file for l in script):
+    if script and any(l.file for l in script):
+        missing = [l.index for l in script if not l.file]
+        if missing:
+            sys.exit(f"script.md lines {missing} have no File - fill it in (or delete those rows)")
         out = []
         for l in script:
             hit = by_path.get(l.file) or next((v for k, v in by_path.items() if Path(k).name == Path(l.file).name), None)
@@ -246,9 +250,60 @@ def _match_by_content(files, script, cfg):
     return out
 
 
+SHOT_PATTERNS = [
+    r"^\s*s\s*[-_ ]?\s*(\d{1,2})(?!\d)",          # S1_wide, s 2, S-3
+    r"(?<![a-z0-9])s(\d{1,2})(?![0-9])",            # wide_S1, still-s4
+    r"shot\s*[-_ #]?\s*(\d{1,2})(?!\d)",          # shot 1, Shot_02
+    r"^\s*(\d{1,2})(?!\d)",                        # 1.png, 03 me talking.jpg
+]
+
+
+def shot_id(name: str):
+    for pat in SHOT_PATTERNS:
+        m = re.search(pat, name, re.I)
+        if m:
+            return f"S{int(m.group(1))}"
+    return None
+
+
+def discover_stills(d: Path, cfg, quiet=False):
+    if not d.exists():
+        sys.exit(f"stills folder not found: {d}")
+    imgs = [p for p in sorted(d.rglob("*"), key=natural_key) if p.is_file() and not p.name.startswith(".")]
+    stills = {}
+    for sid, rel in (cfg.get("stillsMap") or {}).items():
+        p = d / rel
+        if not p.exists():
+            sys.exit(f'stillsMap: "{rel}" not found in {d}')
+        stills[sid.upper()] = p
+    if not stills:
+        for p in imgs:
+            sid = shot_id(p.stem) if p.suffix.lower() in IMG_EXT else None
+            if sid and sid not in stills:
+                stills[sid] = p
+    if not stills and not quiet:
+        names = [str(p.relative_to(d)) for p in imgs]
+        heic = [n for n in names if n.lower().endswith((".heic", ".heif", ".avif"))]
+        msg = [f"Couldn't tell which still is which shot in {d}. Files there:"]
+        msg += [f"  {n}" for n in names] or ["  (empty)"]
+        if heic:
+            msg += ["", "HEIC/AVIF can't be read - convert to PNG first:",
+                    f'  cd "{d}" && for f in *.heic *.HEIC; do sips -s format png "$f" --out "${{f%.*}}.png"; done']
+        msg += ["", "Either rename them so they start with S1..S6 (e.g. 'S1 wide.png', 'S2 me talking.png'),",
+                "or tell config.json which is which:",
+                '  "stillsMap": {']
+        usable = [n for n in names if Path(n).suffix.lower() in IMG_EXT][:6]
+        msg += [f'    "S{k + 1}": "{n}"' + ("," if k < len(usable) - 1 else "") for k, n in enumerate(usable)]
+        msg += ["  }", "(S1 wide, S2 me talking, S3 sidekick talking, S4 me reacting, S5 sidekick sincere, S6 behind both)"]
+        sys.exit("\n".join(msg))
+    return stills
+
+
 def stills_hint(src: Path):
-    d = src / "stills"
-    return sorted({m.group(1).upper() for p in (d.iterdir() if d.exists() else []) if (m := re.match(r"^(S\d+)", p.stem, re.I))})
+    try:
+        return sorted(discover_stills(src / "stills", {}, quiet=True))
+    except SystemExit:
+        return []
 
 
 def write_draft_script(src, files, audio_dir, cfg, stills, use_whisper=True):
@@ -272,10 +327,12 @@ def write_draft_script(src, files, audio_dir, cfg, stills, use_whisper=True):
     lines = [
         "# Script",
         "",
-        "Put the rows in the order they're spoken, renumber #, pick a Shot for each line,",
-        "optionally an Expression (neutral / smug / soft / happy), and `yes` under Emphasis for the emotional line.",
-        "Delete rows for takes you don't want. Then run prepare.py again.",
-        f"Shots available: {', '.join(stills) or 'S1..S6'}",
+        "<!--",
+        "Put the rows in the order they're spoken and renumber #. Delete rows for takes you don't want.",
+        "Pick a Shot for each line, optionally an Expression (neutral / smug / soft / happy),",
+        "and `yes` under Emphasis for the emotional line. Then run prepare.py again.",
+        f"Shots available: {', '.join(stills) or 'S1 .. S6'}",
+        "-->",
         "",
         "| # | Speaker | Shot | Expression | Emphasis | React | Line | File |",
         "|---|---------|------|------------|----------|-------|------|------|",
@@ -316,19 +373,20 @@ def main():
         write_draft_script(src, files, audio_dir, cfg, stills_hint(src), use_whisper=not args.skip_whisper)
         return
     files = resolve_order(files, script, audio_dir, cfg, use_whisper=not args.skip_whisper)
+    seen = {}
+    for l in script:
+        key = " ".join(_words(l.text))
+        if key and key in seen:
+            print(f"  ! line {l.index:02d} repeats line {seen[key]:02d} (\"{l.text[:40]}\") - "
+                  "leftover take? delete the row you don't want in script.md")
+        seen.setdefault(key, l.index)
     by_index = {l.index: l for l in script}
     if script and not all(i in by_index for i, _, _ in files) and len(script) == len(files):
         # numbering in script.md doesn't match filenames: fall back to order
         by_index = {files[n][0]: l for n, l in enumerate(script) if n < len(files)}
     print(f"{len(files)} audio lines, {len(script)} script lines, speakers: {speakers}")
 
-    stills = {}
-    for p in sorted((src / "stills").iterdir()) if (src / "stills").exists() else []:
-        m = re.match(r"^(S\d+)", p.stem, re.I)
-        if m and p.suffix.lower() in IMG_EXT:
-            stills.setdefault(m.group(1).upper(), p)
-    if not stills:
-        sys.exit(f"no stills named S1..S6 in {src / 'stills'}")
+    stills = discover_stills(src / "stills", cfg)
     print(f"stills: {', '.join(f'{k}={v.name}' for k, v in stills.items())}")
 
     lines = []

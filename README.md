@@ -43,7 +43,7 @@ The first run downloads the cutout model (~180 MB), the face landmark model (4 M
   script.md                 (written for you on the first run if it's missing)
 ```
 
-- **Stills** only need to start with `S1`…`S6` (png/jpg/webp). Any aspect ratio works; they're cover-cropped to 9:16.
+- **Stills** need `S1`…`S6` somewhere in the name (`S1 wide.png`, `wide_s1.jpg`, `Shot 1.png` and `1.png` all work), or a `"stillsMap": {"S1": "file.png", …}` entry in `config.json`. Use png/jpg/webp; convert HEIC first. Any aspect ratio works; they're cover-cropped to 9:16.
 - **Audio filenames can be anything.** Each speaker gets a folder, and the folder name sets the speaker:
   - `main_character_audio`, `main`, `hero` → **me**
   - `buddy_audio`, `buddy`, `friend` → **sidekick**

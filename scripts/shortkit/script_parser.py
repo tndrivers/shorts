@@ -87,7 +87,9 @@ def _clean_text(t: str) -> str:
 
 
 def parse_script(md: str, speakers: list[str]) -> list[ScriptLine]:
+    """If the file has a table, only table rows count (notes around it are ignored)."""
     lines: list[ScriptLine] = []
+    free: list[ScriptLine] = []
     rows = md.splitlines()
     i = 0
     seq = 0
@@ -158,7 +160,7 @@ def parse_script(md: str, speakers: list[str]) -> list[ScriptLine]:
             react = _norm_expr(rm.group(1))
         emphasis = bool(re.search(r"!emphasis|!push|\bemotional\b|⭐|★|\[!\]", raw, re.I))
         seq += 1
-        lines.append(
+        free.append(
             ScriptLine(
                 index=int(num.group(1)) if num else seq,
                 text=_clean_text(text),
@@ -169,4 +171,4 @@ def parse_script(md: str, speakers: list[str]) -> list[ScriptLine]:
                 react=react,
             )
         )
-    return lines
+    return lines if lines else free
